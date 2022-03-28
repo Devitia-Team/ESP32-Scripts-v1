@@ -1,0 +1,10 @@
+id 12
+wifi CBU
+w_pwd
+aws_endp https://qm6z7raeic.execute-api.us-west-1.amazonaws.com/prod/upload
+sda 21
+scl 22
+d1 4 16
+d2 17 5
+adc1 VCll 0x48
+adc2 vv__ 0x49

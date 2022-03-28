@@ -1,0 +1,2 @@
+import sensors
+sensors.start()
