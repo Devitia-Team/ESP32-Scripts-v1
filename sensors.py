@@ -4,7 +4,6 @@ gc.enable()
 
 import machine, time
 import network
-import urequests
 from machine import Pin
 import ads1115
 gc.collect()
@@ -86,24 +85,21 @@ class AnalogReader:
     self.adc_1 = ads1115.ADS1115(self.i2c, address=addr_1)
     self.adc_2 = ads1115.ADS1115(self.i2c, address=addr_2)
     self.layout = layout
+    self.time = time.time_ns()
 
   def read_sensor_values(self, order):
-    buckets = [0, 20, 40, 80, 160, 220]
+    scalor = 5 / 2 ** 12
+    buckets = [-2, 10, 20, 40, 80, 160, 220]
     light = []
     voltage = []
+    V = 0
+    C = 0
     other = []
 
-    def read_light_sensor(adc, channel):
+    def read_sensor(adc, channel, v_a, v_b, bkts=buckets):
       try:
-        raw = (adc.read(4, channel) - 335) / 30483
-        return max([n for n, p in zip(buckets, [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]) if raw >= p] + [0])
-      except OSError:
-        return -1.0
-
-    def read_voltage_sensor(adc, channel):
-      try:
-        raw = (adc.read(4, channel) - 5169) / 27067
-        return max([n for n, p in zip(buckets, [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]) if raw >= p] + [0])
+        raw = (adc.read(4, channel) - v_a) / v_b
+        return max([-2] + [n for n, p in zip(bkts, [-1.0, 0.05, 0.2, 0.4, 0.6, 0.8, 1.0]) if raw >= p])
       except OSError:
         return -1.0
 
@@ -112,19 +108,27 @@ class AnalogReader:
       except OSError: return -1.0
 
     for i, c in enumerate(self.layout[:4]):
-      if c == "l": light.append(read_light_sensor(self.adc_1, i))
-      elif c == "v": voltage.append(read_voltage_sensor(self.adc_1, i))
+      if c == "l": light.append(read_sensor(self.adc_1, i, 335, 30483))
+      elif c == "v": voltage.append(read_sensor(self.adc_1, i, 2669, 29567))
+      elif c == "V": V = read_other_sensor(self.adc_1, i) * scalor
+      elif c == "C": C = (2.5 - read_other_sensor(self.adc_1, i) * scalor) / 0.17
       else: other.append(read_other_sensor(self.adc_1, i))
 
     for i, c in enumerate(self.layout[4:]):
-      if c == "l": light.append(read_light_sensor(self.adc_2, i))
-      elif c == "v": voltage.append(read_voltage_sensor(self.adc_2, i))
+      if c == "l": light.append(read_sensor(self.adc_2, i, 335, 30483))
+      elif c == "v": voltage.append(read_sensor(self.adc_2, i, 2669, 29567))
+      elif c == "V": V = read_other_sensor(self.adc_2, i) * scalor
+      elif c == "C": C = (2.5 - read_other_sensor(self.adc_2, i) * scalor) / 0.17
       else: other.append(read_other_sensor(self.adc_2, i))
 
     data = []
     for o in order:
       if o == "l": data.append(light.pop(0) if light else 0.0)
       elif o == "v": data.append(voltage.pop(0) if voltage else 0.0)
+      elif o == "e":
+        temp_time = time.time_ns()
+        data.append(V * C * (temp_time - self.time) / 10 ** 12)
+        self.time = temp_time
       else: data.append(other.pop(0) if other else 0.0)
 
     return data
@@ -134,8 +138,9 @@ def start():
   def print_f(msg):
     with open("log.txt", "a") as file:
       file.write(msg.strip() + "\n")
+    gc.collect()
 
-  # print_f("===========================\nline 138: Start")
+  print_f("===========================\nline 138: Start")
   # process config
   bot_id = -1
   wifi_name = ""
@@ -168,8 +173,8 @@ def start():
   gc.collect()
   # print_f("line 169: config processed")
 
-
   # set up wifi
+  machine.freq(160 * 10 ** 6)
   # print_f("line 173: connecting to wifi")
   wlan = network.WLAN(network.STA_IF)
   gc.collect()
@@ -179,12 +184,16 @@ def start():
   # print_f("line 177: set wlan to active")
   wlan.connect(wifi_name, wifi_pswd)
   # print_f("line 179: connected to network")
+  gc.collect()
 
   while not wlan.isconnected():
     machine.idle()
 
   # print_f("Line 180: pre-loop")
+  machine.freq(240 * 10 ** 6)
   try:
+    import urequests
+    gc.collect()
     ads = AnalogReader(i2c_pins["sda"], i2c_pins["scl"], adcs[0][1], adcs[1][1], adcs[0][0] + adcs[1][0])
     distance_sensors = [HCSR04(t, e) for t, e in dist_sensors.values()]
     ctr = 0
@@ -192,13 +201,11 @@ def start():
     while True:
       gc.collect()
       data = [bot_id] + [ds.distance_mm() for ds in distance_sensors[:2]]\
-           + ads.read_sensor_values("vvll_")
+           + ads.read_sensor_values("vvlle")
       data_str = str(data).replace(" ", "")
       gc.collect()
       try:
-        response = None
-        if wlan.isconnected():
-          response = urequests.post(aws_endpoint+"?data="+data_str, timeout=50)
+        response = urequests.post(aws_endpoint+"?data="+data_str, timeout=15)
         print(ctr, ": Posted:", data_str)
         # print_f("line 197: posted data")
         ctr += 1
@@ -217,8 +224,7 @@ def start():
           wlan.connect(wifi_name, wifi_pswd)
           while not wlan.isconnected():
             machine.idle()
-      time.sleep(0.1)
-  except KeyboardInterrupt:
+  finally:
     if wlan and wlan.isconnected():
       wlan.disconnect()
       wlan.active(False)
