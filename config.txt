@@ -1,4 +1,4 @@
-id 11
+id 5
 wifi CBU
 w_pwd
 aws_endp https://qm6z7raeic.execute-api.us-west-1.amazonaws.com/prod/upload

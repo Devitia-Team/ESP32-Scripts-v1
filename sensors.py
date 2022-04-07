@@ -116,7 +116,7 @@ class AnalogReader:
 
     for i, c in enumerate(self.layout[4:]):
       if c == "l": light.append(read_sensor(self.adc_2, i, 335, 30483))
-      elif c == "v": voltage.append(read_sensor(self.adc_2, i, 2669, 29567))
+      elif c == "v": voltage.insert(0, read_sensor(self.adc_2, i, 2669, 29567))
       elif c == "V": V = read_other_sensor(self.adc_2, i) * scalor
       elif c == "C": C = (2.5 - read_other_sensor(self.adc_2, i) * scalor) / 0.17
       else: other.append(read_other_sensor(self.adc_2, i))
@@ -190,7 +190,7 @@ def start():
     machine.idle()
 
   # print_f("Line 180: pre-loop")
-  machine.freq(240 * 10 ** 6)
+  # machine.freq(240 * 10 ** 6)
   try:
     import urequests
     gc.collect()
@@ -205,7 +205,7 @@ def start():
       data_str = str(data).replace(" ", "")
       gc.collect()
       try:
-        response = urequests.post(aws_endpoint+"?data="+data_str, timeout=15)
+        response = urequests.post(aws_endpoint+"?data="+data_str, timeout=10)
         print(ctr, ": Posted:", data_str)
         # print_f("line 197: posted data")
         ctr += 1
